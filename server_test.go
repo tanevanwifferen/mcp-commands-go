@@ -2,6 +2,7 @@ package mcpcommands_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -244,6 +245,17 @@ func TestOverMCP(t *testing.T) {
 	}
 	if !strings.Contains(tools.Tools[0].Description, "issue …") {
 		t.Fatalf("help description lacks listing: %s", tools.Tools[0].Description)
+	}
+	run := tools.Tools[1]
+	if run.Title != "beads: run a command" {
+		t.Errorf("run title = %q", run.Title)
+	}
+	if !strings.HasPrefix(run.Description, "beads: Issue tracker\n\nRun a beads command. Top-level commands: issue …") ||
+		!strings.Contains(run.Description, "e.g. issue create <title>.") {
+		t.Errorf("run description = %s", run.Description)
+	}
+	if b, _ := json.Marshal(run.InputSchema); !strings.Contains(string(b), "One beads command line") {
+		t.Errorf("run command description not server-specific: %s", b)
 	}
 
 	call := func(name string, args map[string]any) (string, bool) {

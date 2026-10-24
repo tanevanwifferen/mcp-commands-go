@@ -202,6 +202,7 @@ func (s *Server) RegisterTools() {
 
 	mcp.AddTool(s.MCP, &mcp.Tool{
 		Name:        s.opts.HelpTool,
+		Title:       s.root.Name + ": list commands",
 		Description: helpDescription,
 		InputSchema: helpSchema,
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
@@ -213,9 +214,22 @@ func (s *Server) RegisterTools() {
 		return text(page, false), nil, nil
 	})
 
+	runSchema, err := jsonschema.For[runInput](nil)
+	if err != nil {
+		panic(err)
+	}
+	sample := example(s.root)
+	if sample == "" {
+		sample = `issue create "Title" --priority 1`
+	}
+	runSchema.Properties["command"].Description = "One " + s.root.Name +
+		" command line: path, arguments, options. E.g. " + sample
+
 	mcp.AddTool(s.MCP, &mcp.Tool{
 		Name:        s.opts.RunTool,
-		Description: usage,
+		Title:       s.root.Name + ": run a command",
+		Description: runDescription(s.root),
+		InputSchema: runSchema,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in runInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.execute(ctx, req, in.Command, in.Args)
 		if err != nil {

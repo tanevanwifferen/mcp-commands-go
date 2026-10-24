@@ -131,6 +131,11 @@ Options:
 **`run(command, args?)`** executes one command line. `args` is an optional object of
 parameter values, for input that is awkward to quote.
 
+Both tools are titled and described per server (`beads: run a command`, and a `run`
+description that starts with the server's name, description and top-level commands, with an
+example taken from its own tree), so a client with several mcp-commands servers connected can
+tell their `run` tools apart.
+
 ## Command-line rules
 
 - The first words are the command path. Aliases work (`issue ls`).

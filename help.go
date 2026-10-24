@@ -13,11 +13,81 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-const usage = "Run a command with run(command, args?). The command is one line, like a shell: " +
-	`the command path, then positional arguments, then --options, e.g. issue create "Fix login" --priority 1. ` +
-	"Values are parsed as JSON when the parameter is not a string. " +
-	`Repeat an array option, or pass a JSON array (--tags '["a","b"]'). ` +
-	"Structured values can go in args instead, as an object keyed by parameter name."
+// usage explains how to write a command line, with example as the sample.
+func usage(example string) string {
+	return "Run a command with run(command, args?). The command is one line, like a shell: " +
+		"the command path, then positional arguments, then --options, e.g. " + example + ". " +
+		"Values are parsed as JSON when the parameter is not a string. " +
+		`Repeat an array option, or pass a JSON array (--tags '["a","b"]'). ` +
+		"Structured values can go in args instead, as an object keyed by parameter name."
+}
+
+const defaultExample = `issue create "Fix login" --priority 1`
+
+// example is a sample command line from the tree: the first command with a
+// required argument (its path and required arguments as placeholders), else
+// the first command, else "".
+func example(g *Group) string {
+	type entry struct {
+		g    *Group
+		path []string
+	}
+	first := ""
+	queue := []entry{{g, nil}}
+	for len(queue) > 0 {
+		e := queue[0]
+		queue = queue[1:]
+		for _, child := range e.g.children {
+			if sub, ok := child.(*Group); ok {
+				queue = append(queue, entry{sub, append(slices.Clip(e.path), sub.Name)})
+				continue
+			}
+			c := child.(*Command)
+			line := strings.Join(append(slices.Clip(e.path), c.Name), " ")
+			var required []string
+			for _, p := range c.Params {
+				if p.Positional && p.Required {
+					required = append(required, "<"+p.Name+">")
+				}
+			}
+			if len(required) > 0 {
+				return line + " " + strings.Join(required, " ")
+			}
+			if first == "" {
+				first = line
+			}
+		}
+	}
+	return first
+}
+
+// runDescription is the run tool's description: what the server is, its
+// top-level commands and how to write a command line, so each server's run
+// tool reads as its own.
+func runDescription(g *Group) string {
+	var out []string
+	if g.Help != "" {
+		out = append(out, g.Name+": "+g.Help)
+	}
+	var names []string
+	for _, c := range g.children {
+		if sub, ok := c.(*Group); ok {
+			names = append(names, sub.Name+" …")
+		} else {
+			names = append(names, c.(*Command).Name)
+		}
+	}
+	line := "Run a " + g.Name + " command."
+	if len(names) > 0 {
+		line += " Top-level commands: " + strings.Join(names, ", ") + "."
+	}
+	out = append(out, line+` help("<command>") shows a command's arguments and options.`)
+	sample := example(g)
+	if sample == "" {
+		sample = defaultExample
+	}
+	return strings.Join(append(out, usage(sample)), "\n\n")
+}
 
 func render(node any, path []string, depth int) string {
 	if c, ok := node.(*Command); ok {
