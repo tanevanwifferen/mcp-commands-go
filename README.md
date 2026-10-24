@@ -146,7 +146,7 @@ parameter values, for input that is awkward to quote.
 Errors are written for the model to act on:
 
 ```
---status: expected one of "open"|"in_progress"|"closed" (got "done")
+--status: expected one of "open"|"in_progress"|"closed" (got string)
 
 Usage: issue update <id> [options]
 ...

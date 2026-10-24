@@ -169,8 +169,11 @@ func (c *Command) check(values map[string]any) error {
 			if !p.Positional {
 				label = p.Flag()
 			}
-			got, _ := json.Marshal(v)
-			problems = append(problems, fmt.Sprintf("%s: %s (got %s)", label, explain(p.Schema, v, err), got))
+			found := explain(p.Schema, v, label)
+			if found == nil {
+				found = []string{fmt.Sprintf("%s: %s (got %s)", label, validationPrefix.ReplaceAllString(err.Error(), ""), describe(v))}
+			}
+			problems = append(problems, found...)
 		}
 	}
 	if problems != nil {
@@ -179,23 +182,53 @@ func (c *Command) check(values map[string]any) error {
 	return nil
 }
 
-var validationPrefix = regexp.MustCompile(`^validating [^:]*: `)
+var validationPrefix = regexp.MustCompile(`^(validating [^:]*: )+`)
 
-// explain says why v does not fit s, for the common cases; otherwise it falls
-// back to the validator's message.
-func explain(s *jsonschema.Schema, v any, err error) string {
-	if items, ok := v.([]any); ok && s.Items != nil {
-		for i, item := range items {
-			if s.Items.Enum != nil || s.Items.Minimum != nil || s.Items.Maximum != nil || s.Items.Type != "" {
-				if msg := explainValue(s.Items, item); msg != "" {
-					return fmt.Sprintf("item %d: %s", i, msg)
-				}
+// explain lists why v does not fit s, for the common cases, naming the path to
+// each bad value (deps.0, filter.status). It returns nil when it cannot tell.
+func explain(s *jsonschema.Schema, v any, where string) []string {
+	if msg := explainValue(s, v); msg != "" {
+		return []string{fmt.Sprintf("%s: %s (got %s)", where, msg, describe(v))}
+	}
+	var out []string
+	switch x := v.(type) {
+	case []any:
+		if s.Items != nil {
+			for i, item := range x {
+				out = append(out, explain(s.Items, item, fmt.Sprintf("%s.%d", where, i))...)
 			}
 		}
-	} else if msg := explainValue(s, v); msg != "" {
-		return msg
+	case map[string]any:
+		for _, k := range s.Required {
+			if _, ok := x[k]; !ok {
+				out = append(out, fmt.Sprintf("%s.%s: missing required property", where, k))
+			}
+		}
+		closed := s.AdditionalProperties != nil && s.AdditionalProperties.Not != nil
+		for _, k := range slices.Sorted(maps.Keys(x)) {
+			if sub, ok := s.Properties[k]; ok {
+				out = append(out, explain(sub, x[k], where+"."+k)...)
+			} else if closed {
+				names := slices.Sorted(maps.Keys(s.Properties))
+				out = append(out, fmt.Sprintf("%s.%s: unknown property. Properties: %s", where, k, strings.Join(names, ", ")))
+			}
+		}
 	}
-	return validationPrefix.ReplaceAllString(err.Error(), "")
+	return out
+}
+
+// describe names the JSON type of v for error messages, with the keys of an
+// object, rather than echoing the value back.
+func describe(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) == 0 {
+		return jsonType(v)
+	}
+	keys := slices.Sorted(maps.Keys(m))
+	if len(keys) > 10 {
+		keys = append(keys[:10], "…")
+	}
+	return "object {" + strings.Join(keys, ", ") + "}"
 }
 
 func explainValue(s *jsonschema.Schema, v any) string {
@@ -423,11 +456,21 @@ func jsonType(v any) string {
 			return "integer"
 		}
 		return "number"
-	case int, int64, int32:
-		return "integer"
 	case []any:
 		return "array"
-	default:
-		return "object"
 	}
+	switch reflect.ValueOf(v).Kind() {
+	case reflect.Slice, reflect.Array:
+		return "array"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "integer"
+	case reflect.Float32, reflect.Float64:
+		return "number"
+	case reflect.Pointer, reflect.Interface:
+		if reflect.ValueOf(v).IsNil() {
+			return "null"
+		}
+	}
+	return "object"
 }

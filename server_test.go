@@ -28,6 +28,14 @@ type labelInput struct {
 	Labels []string `json:"labels" cli:"arg"`
 }
 
+type filterInput struct {
+	Where struct {
+		State string   `json:"state" enum:"open,closed"`
+		Limit int      `json:"limit,omitempty"`
+		Tags  []string `json:"tags,omitempty"`
+	} `json:"where"`
+}
+
 type statusInput struct {
 	Status string `json:"status,omitempty" enum:"open,closed"`
 	Limit  int    `json:"limit,omitempty" minimum:"1" default:"10"`
@@ -47,6 +55,10 @@ func makeApp() *commands.Server {
 		return "deleted " + in.ID, nil
 	}, "rm")
 	commands.Add(issue, "list", "List issues.", func(_ context.Context, _ *mcp.CallToolRequest, in statusInput) (any, error) {
+		return in, nil
+	})
+
+	commands.Add(issue, "filter", "Filter issues.", func(_ context.Context, _ *mcp.CallToolRequest, in filterInput) (any, error) {
 		return in, nil
 	})
 
@@ -147,8 +159,16 @@ func TestExplainsErrors(t *testing.T) {
 	}
 	fails(t, app, "issue", nil, "is a group")
 	fails(t, app, "issue create 'unterminated", nil, "closing quotation")
-	fails(t, app, "issue list --status done", nil, `--status: .*\(got "done"\)`)
-	fails(t, app, "issue list --limit 0", nil, `--limit: .*\(got 0\)`)
+	fails(t, app, "issue list --status done", nil, `^--status: expected one of "open"\|"closed" \(got string\)`)
+	fails(t, app, "issue list --limit 0", nil, `^--limit: must be >= 1 \(got integer\)`)
+	fails(t, app, "issue create x", map[string]any{"deps": []any{"a", 1, true}},
+		`^deps\.1: expected string \(got integer\); deps\.2: expected string \(got boolean\)\n`)
+	fails(t, app, "issue create", map[string]any{"title": map[string]any{"en": "x", "nl": "y"}},
+		`^title: expected string \(got object \{en, nl\}\)`)
+	fails(t, app, "issue filter", map[string]any{"where": map[string]any{"state": "open", "lmit": 3}},
+		`^--where\.lmit: unknown property\. Properties: limit, state, tags`)
+	fails(t, app, "issue filter", map[string]any{"where": map[string]any{"tags": []any{"a", 2}}},
+		`^--where\.state: missing required property; --where\.tags\.1: expected string \(got integer\)`)
 }
 
 func TestHelpFlagInline(t *testing.T) {
@@ -167,7 +187,7 @@ func TestHelpPages(t *testing.T) {
 		return page
 	}
 	root := help("", 1)
-	for _, want := range []string{"issue …", "(4 commands)"} {
+	for _, want := range []string{"issue …", "(5 commands)"} {
 		if !strings.Contains(root, want) {
 			t.Fatalf("root help lacks %q:\n%s", want, root)
 		}
